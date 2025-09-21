@@ -20,7 +20,7 @@ with m.chat_session():
     with open('products-100.csv', 'r') as file:
         data = file.read()
     out = m.generate(
-        "you will anlyze and find me products whose price is greater than 60usd from csv file"+data,
+        "are two addresses enterted by diffrent users a match? Address1: 273 South pelham Rd, welland, L3C0E6. Address2: 273 S Pelham Rd, welland, L3C0E6",
         max_tokens=10000,
         temp=0.1,
         top_p=0.95
