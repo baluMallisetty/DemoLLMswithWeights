@@ -1,57 +1,57 @@
-# from gpt4all import GPT4All
+"""Minimal CLI demo for running the TinyLlama chat model with GPT4All.
 
-# for row in GPT4All.list_models():
-#     print(row["filename"])
-# MODEL = r"C:\Users\balum\OneDrive\Documents\AI\LLMs\models\tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf"   # or any .gguf / .bin you copied
-# m = GPT4All(MODEL)
-# print(m.generate("what is 66+66?"))
+This script mirrors the behaviour of the Gradio demo but keeps things in a
+simple command-line flow so it is easy to sanity-check that the local model is
+able to respond.  Run it with ``python startLLM.py`` to see a short sample
+interaction.
+"""
+from __future__ import annotations
 
+import os
+import time
+from pathlib import Path
 
 from gpt4all import GPT4All
-import time, os
 
-MODEL = r"C:\Users\balum\OneDrive\Documents\AI\LLMs\models\tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf"
-m = GPT4All(MODEL, allow_download=False, n_threads= max(2, os.cpu_count()//2),
-            n_ctx=2048)
+MODEL_NAME = "tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf"
+MODEL_PATH = Path(__file__).resolve().parent / "models" / MODEL_NAME
 
-t0 = time.time()
-
-with m.chat_session():
-    with open('products-100.csv', 'r') as file:
-        data = file.read()
-    out = m.generate(
-        "are two addresses enterted by diffrent users a match? Address1: 273 South pelham Rd, welland, L3C0E6. Address2: 273 S Pelham Rd, welland, L3C0E6",
-        max_tokens=10000,
-        temp=0.1,
-        top_p=0.95
+if not MODEL_PATH.is_file():
+    raise FileNotFoundError(
+        f"Model file not found at {MODEL_PATH}. "
+        "Place the model in the 'models' directory next to this script."
     )
-print(out)
-print(f"took {time.time()-t0:.1f}s")
 
-def _extract_text(file):
-    if not file:
-        return ""
-    # gr.File(type="binary") gives dict{name,data}; fallback to file-like
-    if isinstance(file, dict):
-        data = file.get("data", b"")
-        name = os.path.basename(file.get("name", "attachment"))
-    else:
-        name = os.path.basename(getattr(file, "name", "attachment"))
-        try:
-            data = file.read()
-        except Exception:
-            data = b""
-    ext = os.path.splitext(name)[1].lower()
-    try:
-        if ext in (".txt", ".md", ".log", ".json"):
-            return data.decode("utf-8", "ignore")[:40000]
-        if ext == ".csv":
-            text = data.decode("utf-8", "ignore")
-            out, rdr = [], csv.reader(io.StringIO(text))
-            for i, row in enumerate(rdr):
-                out.append(" • " + ", ".join(row))
-                if i >= 40: break
-            return "CSV preview (first rows):\n" + "\n".join(out)
-    except Exception as e:
-        return f"[Error reading {name}: {e}]"
-    return "[Unsupported attachment type]"
+llm = GPT4All(
+    str(MODEL_PATH),
+    allow_download=False,
+    n_threads=max(2, (os.cpu_count() or 4) // 2),
+    n_ctx=2048,
+)
+
+
+def ask_local_model(prompt: str, *, max_tokens: int = 120) -> str:
+    """Generate a single response from the local TinyLlama model."""
+    with llm.chat_session():
+        return llm.generate(prompt, max_tokens=max_tokens, temp=0.1, top_p=0.95)
+
+
+def main() -> None:
+    question = (
+        "Are these two user-entered addresses a match? "
+        "Address1: 273 South Pelham Rd, Welland, L3C0E6. "
+        "Address2: 273 S Pelham Rd, Welland, L3C0E6"
+    )
+
+    print("Loading model…")
+    t0 = time.time()
+    answer = ask_local_model(question)
+    duration = time.time() - t0
+
+    print("\nQuestion:\n" + question)
+    print("\nModel answer:\n" + answer)
+    print(f"\nCompleted in {duration:.1f}s")
+
+
+if __name__ == "__main__":
+    main()
