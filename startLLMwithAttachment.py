@@ -55,6 +55,7 @@ def _maybe_calc_math(msg):
     except Exception:
         return None
 
+
 def _chat(messages, *, max_tokens=200, temperature=0.1):
     response = llm.chat_completion(
         messages=messages,
@@ -108,13 +109,20 @@ def _format_prompt_with_attach(history, user_msg, summary):
     for u, a in (history or [])[-4:]:
         messages.append({"role": "user", "content": u})
         messages.append({"role": "assistant", "content": a})
+
+    context_msg = (
+        "Attachment notes (do not quote verbatim, just use for reasoning):\n"
+        f"{summary.strip()}\n\n"
+        f"User question: {user_msg.strip()}"
+    )
+    messages.append({"role": "user", "content": context_msg})
     messages.append({"role": "system", "content": "ATTACHMENT SUMMARY:\n" + summary})
     messages.append({"role": "user", "content": user_msg})
     return messages
 
 def _cleanup(text: str) -> str:
     # strip common boilerplate
-    text = re.sub(r"^(thank you .*?|sure[,!]?.*?|here'?s .*?:)\s*", "", text, flags=re.I|re.S)
+    text = re.sub(r"^(thank you .*?|sure[,!]?.*?|here'?s .*?:)\s*", "", text, flags=re.I | re.S)
     # cut if model leaks role markers
     for t in ("<|user|>", "<|system|>", "<|assistant|>", "</s>"):
         i = text.find(t)
