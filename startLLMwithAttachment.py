@@ -55,47 +55,71 @@ def _maybe_calc_math(msg):
     except Exception:
         return None
 
-def _summarize_attachment(raw: str) -> str:
-    if not raw.strip(): return ""
-    prompt = (
-        "<|system|>\nSummarize the text into 3–6 short bullet points. "
-        "Use your own words only. No prefaces, no conclusions.\n"
-        "<|user|>\n---\n" + raw[:60000] + "\n---\n"
-        "<|assistant|>\n- "
+def _chat(messages, *, max_tokens=200, temperature=0.05):
+    response = llm.chat_completion(
+        messages=messages,
+        max_tokens=max_tokens,
+        temperature=temperature,
+        top_p=0.9,
+        repeat_penalty=1.08,
     )
-    with llm.chat_session():
-        s = llm.generate(
-            prompt, max_tokens=160, temp=0.15, top_p=0.9, top_k=40,
-            repeat_penalty=1.12, repeat_last_n=256, n_batch=256
-        ).strip()
-    # Normalize to bullets, keep it tight
-    bullets = re.split(r"\n\s*[-•]\s*", "- " + s)
-    bullets = [("- " + b.strip()) for b in bullets if b.strip()]
+    return response["choices"][0]["message"]["content"].strip()
+
+def _summarize_attachment(raw: str) -> str:
+    if not raw.strip():
+        return ""
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "You are a careful summariser. Write 3–6 short bullets in your "
+                "own words. No prefaces or conclusions."
+            ),
+        },
+        {
+            "role": "user",
+            "content": f"Summarise the following text.\n---\n{raw[:60000]}\n---\n",
+        },
+    ]
+    summary = _chat(messages, max_tokens=160, temperature=0.15)
+    bullets = re.split(r"\n\s*[-•]\s*", "- " + summary)
+    bullets = ["- " + b.strip() for b in bullets if b.strip()]
     return "\n".join(bullets[:6])[:900]
 
 def _format_prompt_no_attach(history, user_msg):
-    sys = ("You are a concise assistant. Start directly with the answer. "
-           "No prefaces, no disclaimers. Keep answers ≤ 60 words unless asked otherwise.")
-    msgs = [f"<|system|>\n{sys}\n"]
-    for u,a in (history or [])[-8:]:
-        msgs.append(f"<|user|>\n{u}\n<|assistant|>\n{a}")
-    msgs.append(f"<|user|>\n{user_msg}\n<|assistant|>\n")
-    return "\n".join(msgs)
+    sys = (
+        "You are a concise assistant. Start directly with the answer. "
+        "No prefaces, no disclaimers. Keep answers ≤ 60 words unless asked otherwise."
+    )
+    messages = [{"role": "system", "content": sys}]
+    for u, a in (history or [])[-6:]:
+        messages.append({"role": "user", "content": u})
+        messages.append({"role": "assistant", "content": a})
+    messages.append({"role": "user", "content": user_msg})
+    return messages
 
 def _format_prompt_with_attach(history, user_msg, summary):
-    sys = ("You are a concise assistant. Use the ATTACHMENT SUMMARY as factual context. "
-           "Do not copy it. If the summary lacks the answer, say so. "
-           "Start directly. ≤ 60 words unless asked otherwise.")
-    msgs = [f"<|system|>\n{sys}\n"]
-    for u,a in (history or [])[-6:]:
-        msgs.append(f"<|user|>\n{u}\n<|assistant|>\n{a}")
-    msgs.append(f"<|system|>\nATTACHMENT SUMMARY:\n{summary}\n")
-    msgs.append(f"<|user|>\n{user_msg}\n<|assistant|>\n")
-    return "\n".join(msgs)
+    sys = (
+        "You are a concise assistant. Use the provided attachment notes as factual context. "
+        "Do not quote or restate them verbatim. If the notes do not contain the answer, "
+        "explain that directly. Start with the answer. ≤ 60 words unless asked otherwise."
+    )
+    messages = [{"role": "system", "content": sys}]
+    for u, a in (history or [])[-4:]:
+        messages.append({"role": "user", "content": u})
+        messages.append({"role": "assistant", "content": a})
+
+    context_msg = (
+        "Attachment notes (do not quote verbatim, just use for reasoning):\n"
+        f"{summary.strip()}\n\n"
+        f"User question: {user_msg.strip()}"
+    )
+    messages.append({"role": "user", "content": context_msg})
+    return messages
 
 def _cleanup(text: str) -> str:
     # strip common boilerplate
-    text = re.sub(r"^(thank you .*?|sure[,!]?.*?|here'?s .*?:)\s*", "", text, flags=re.I|re.S)
+    text = re.sub(r"^(thank you .*?|sure[,!]?.*?|here'?s .*?:)\s*", "", text, flags=re.I | re.S)
     # cut if model leaks role markers
     for t in ("<|user|>", "<|system|>", "<|assistant|>", "</s>"):
         i = text.find(t)
@@ -113,15 +137,11 @@ def chat_fn(message, history, file):
     raw = _extract_text(file) if file else ""
     if raw:
         summary = _summarize_attachment(raw)
-        prompt = _format_prompt_with_attach(history, message, summary)
+        messages = _format_prompt_with_attach(history, message, summary)
     else:
-        prompt = _format_prompt_no_attach(history, message)
+        messages = _format_prompt_no_attach(history, message)
 
-    with llm.chat_session():
-        out = llm.generate(
-            prompt, max_tokens=140, temp=0.1, top_p=0.9, top_k=40,
-            repeat_penalty=1.08, repeat_last_n=128, n_batch=256
-        )
+    out = _chat(messages, max_tokens=140, temperature=0.1)
     reply = _cleanup(out)
     return (history or []) + [(message, reply)]
 
