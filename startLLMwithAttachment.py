@@ -1,10 +1,23 @@
 # startLLMwithAttachment_fixed.py
 import os, io, re, csv
+from pathlib import Path
 import gradio as gr
 from gpt4all import GPT4All
 
-MODEL = r"C:\Users\balum\OneDrive\Documents\AI\LLMs\models\tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf"
-llm = GPT4All(MODEL, allow_download=False, n_threads=max(2, (os.cpu_count() or 4)//2))
+MODEL_NAME = "tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf"
+MODEL_PATH = Path(__file__).resolve().parent / "models" / MODEL_NAME
+
+if not MODEL_PATH.is_file():
+    raise FileNotFoundError(
+        f"Model file not found at {MODEL_PATH}. "
+        "Place the model in the 'models' directory next to this script."
+    )
+
+llm = GPT4All(
+    str(MODEL_PATH),
+    allow_download=False,
+    n_threads=max(2, (os.cpu_count() or 4)//2)
+)
 
 def _extract_text(file):
     if not file:
