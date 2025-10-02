@@ -55,7 +55,8 @@ def _maybe_calc_math(msg):
     except Exception:
         return None
 
-def _chat(messages, *, max_tokens=200, temperature=0.05):
+
+def _chat(messages, *, max_tokens=200, temperature=0.1):
     response = llm.chat_completion(
         messages=messages,
         max_tokens=max_tokens,
@@ -100,9 +101,9 @@ def _format_prompt_no_attach(history, user_msg):
 
 def _format_prompt_with_attach(history, user_msg, summary):
     sys = (
-        "You are a concise assistant. Use the provided attachment notes as factual context. "
-        "Do not quote or restate them verbatim. If the notes do not contain the answer, "
-        "explain that directly. Start with the answer. ≤ 60 words unless asked otherwise."
+        "You are a concise assistant. Use the ATTACHMENT SUMMARY as factual context. "
+        "Do not copy it. If the summary lacks the answer, say so. Start directly. "
+        "≤ 60 words unless asked otherwise."
     )
     messages = [{"role": "system", "content": sys}]
     for u, a in (history or [])[-4:]:
@@ -115,6 +116,8 @@ def _format_prompt_with_attach(history, user_msg, summary):
         f"User question: {user_msg.strip()}"
     )
     messages.append({"role": "user", "content": context_msg})
+    messages.append({"role": "system", "content": "ATTACHMENT SUMMARY:\n" + summary})
+    messages.append({"role": "user", "content": user_msg})
     return messages
 
 def _cleanup(text: str) -> str:
