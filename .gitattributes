@@ -1,1 +1,2 @@
 *.gguf filter=lfs diff=lfs merge=lfs -text
+models/*.gguf filter=lfs diff=lfs merge=lfs -text
