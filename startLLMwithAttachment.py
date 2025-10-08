@@ -112,6 +112,26 @@ def _continue(messages, partial, extra_tokens=512):
     more = _chat(msgs, max_tokens=extra_tokens, temperature=0.0)
     return more
 
+def _merge_continuation(base: str, addition: str) -> str:
+    """Return ``base`` with ``addition`` stitched on, avoiding duplicated spans."""
+    if not addition:
+        return base
+    addition = addition.lstrip()
+    if not addition:
+        return base
+    # If the model repeated the entire answer, drop it.
+    if addition.strip().startswith(base.strip()):
+        return base
+    # Find the largest overlap between the end of ``base`` and the beginning of ``addition``.
+    max_overlap = min(len(base), len(addition), 600)
+    for size in range(max_overlap, 0, -1):
+        if base[-size:] == addition[:size]:
+            return base + addition[size:]
+    # If the continuation is already contained, avoid re-appending.
+    if addition in base:
+        return base
+    return base + ("\n" if base and not base.endswith("\n") else "") + addition
+
 def _ensure_closed_fences(text: str) -> str:
     if text.count("```") % 2 == 1:
         text += "\n```"
@@ -176,7 +196,7 @@ def chat_fn(message, history, file):
     while _needs_more(out) and tries < 2:
         more = _continue(messages, out, extra_tokens=512)
         if not more: break
-        out += ("\n" if not out.endswith("\n") else "") + more
+        out = _merge_continuation(out, more)
         tries += 1
     reply = _cleanup(out)
     return (history or []) + [(message, reply)]
