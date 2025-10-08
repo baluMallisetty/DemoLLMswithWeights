@@ -178,10 +178,11 @@ def _cleanup(text: str) -> str:
     return _ensure_closed_fences(text.strip())
 
 def _max_tokens_for(message: str) -> int:
-    # If likely code or long answer, allow more tokens.
+    """Return a generous token budget so we only have to answer once."""
+    # If likely code or long answer, allow considerably more tokens to avoid truncation.
     if re.search(r"```|code|function|class|example|java|python|sql|regex|json|xml", message, re.I):
-        return 768
-    return 256
+        return 1024
+    return 512
 
 def chat_fn(message, history, file):
     fast = router_shortcuts(message)
@@ -191,13 +192,6 @@ def chat_fn(message, history, file):
     raw = _extract_text(file) if file else ""
     messages = _format_prompt_with_attach(history, message, _summarize_attachment(raw)) if raw else _format_prompt_no_attach(history, message)
     out = _chat(messages, max_tokens=_max_tokens_for(message), temperature=0.0)
-    # If truncated, ask the model to continue once (or twice) and stitch.
-    tries = 0
-    while _needs_more(out) and tries < 2:
-        more = _continue(messages, out, extra_tokens=512)
-        if not more: break
-        out = _merge_continuation(out, more)
-        tries += 1
     reply = _cleanup(out)
     return (history or []) + [(message, reply)]
 
