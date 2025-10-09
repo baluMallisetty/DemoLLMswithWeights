@@ -1,3 +1,4 @@
+import inspect
 import os
 from gpt4all import GPT4All
 import gradio as gr
@@ -24,6 +25,42 @@ RUNTIME_CFG = dict(
     allow_download=False,
 )
 
+
+def _supported_kwargs():
+    """Return the set of supported GPT4All.__init__ keyword parameters."""
+    try:
+        params = inspect.signature(GPT4All.__init__).parameters
+    except (TypeError, ValueError):  # pragma: no cover - C level signature
+        return None
+    allowed = set(params)
+    allowed.discard("self")
+    return allowed
+
+
+_SUPPORTED_KWARGS = _supported_kwargs()
+
+
+def _filter_kwargs(kwargs):
+    if not _SUPPORTED_KWARGS:
+        return kwargs
+    return {k: v for k, v in kwargs.items() if k in _SUPPORTED_KWARGS}
+
+
+def _init_model():
+    base = dict(RUNTIME_CFG)
+    if USE_GPU:
+        gpu_cfg = dict(device="gpu", n_gpu_layers=-1, n_batch=512)
+        try:
+            cfg = _filter_kwargs({**base, **gpu_cfg})
+            return GPT4All(MODEL_NAME, **cfg)
+        except Exception as exc:
+            print("[GPU init failed -> falling back to CPU]", exc)
+
+    cpu_cfg = dict(device="cpu", n_gpu_layers=0, n_batch=256,
+                   n_threads=max(2, (os.cpu_count() or 4) // 2))
+    cfg = _filter_kwargs({**base, **cpu_cfg})
+    return GPT4All(MODEL_NAME, **cfg)
+
 SYSTEM_PROMPT = (
     "You are a helpful, concise assistant. "
     "If unsure, say you are unsure. Keep answers short and clear."
@@ -42,8 +79,8 @@ def messages_to_prompt(messages):
     parts.append("### Assistant:\n")
     return "\n".join(parts)
 
-# Load model once
-model = GPT4All(MODEL_NAME, **RUNTIME_CFG)
+# Load model once (prefer GPU but fall back gracefully)
+model = _init_model()
 
 def _should_stop(text: str) -> bool:
     return any(text.endswith(m) or m in text[-32:] for m in STOP_MARKERS)
