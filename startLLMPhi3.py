@@ -3,11 +3,11 @@ from gpt4all import GPT4All
 import gradio as gr
 
 # --- CONFIG ---
-MODEL_NAME = "Phi-3-mini-4k-instruct-q4.gguf"   # file name of your GGUF
-MODEL_DIR  = os.path.expanduser(r"C:\Users\balum\OneDrive\Documents\AI\LLMs\models")  # change to wherever your model is
-USE_GPU    = True  # set False if your build/device can't use GPU
+MODEL_NAME = "Phi-3-mini-4k-instruct-q4.gguf"
+MODEL_DIR  = os.path.expanduser(r"C:\Users\balum\OneDrive\Documents\AI\LLMs\models")
+USE_GPU    = True
 
-# Generation params (tweak for your laptop)
+# Generation config (NO 'stop' kwarg here)
 GEN_CFG = dict(
     max_tokens=512,
     temp=0.7,
@@ -15,44 +15,60 @@ GEN_CFG = dict(
     repeat_penalty=1.1,
 )
 
-# Runtime params (safe defaults for corp laptops)
+# We’ll stop manually when model tries to start a new header
+STOP_MARKERS = ["### User:", "### System:", "<|end|>"]
+
+# Runtime options (keep simple; older GPT4All wheels ignore unknown kwargs)
 RUNTIME_CFG = dict(
-    device="gpu" if USE_GPU else "cpu",
-    n_ctx=2048,                     # reduce to 1024 if RAM/VRAM is tight
-    n_threads=os.cpu_count() or 4,  # CPU threads
-    allow_download=False,           # avoid auto-download on corp devices
+    model_path=MODEL_DIR,
+    allow_download=False,
 )
 
 SYSTEM_PROMPT = (
     "You are a helpful, concise assistant. "
-    "If you are unsure, say you are unsure. Keep answers short and clear."
+    "If unsure, say you are unsure. Keep answers short and clear."
 )
 
-def format_prompt(system_msg: str, history: list[list[str]], user_msg: str) -> str:
-    """
-    Simple instruction-style formatting that works well with Phi-3.
-    """
-    parts = [f"### System:\n{system_msg}\n"]
-    for u, a in history:
-        if u:
-            parts.append(f"### User:\n{u}\n")
-        if a:
-            parts.append(f"### Assistant:\n{a}\n")
-    parts.append(f"### User:\n{user_msg}\n### Assistant:\n")
+def messages_to_prompt(messages):
+    parts = []
+    sys = next((m["content"] for m in messages if m["role"] == "system"), SYSTEM_PROMPT)
+    parts.append(f"### System:\n{sys}\n")
+    for m in messages:
+        role, content = m["role"], m["content"]
+        if role == "user":
+            parts.append(f"### User:\n{content}\n")
+        elif role == "assistant":
+            parts.append(f"### Assistant:\n{content}\n")
+    parts.append("### Assistant:\n")
     return "\n".join(parts)
 
-# Load model (first run may take a few seconds)
-model = GPT4All(MODEL_NAME, model_path=MODEL_DIR, **RUNTIME_CFG)
+# Load model once
+model = GPT4All(MODEL_NAME, **RUNTIME_CFG)
 
-def chat_fn(message, history):
-    """
-    Gradio expects either a string or a generator for streaming.
-    We stream tokens from GPT4All.
-    """
-    prompt = format_prompt(SYSTEM_PROMPT, history or [], message)
+def _should_stop(text: str) -> bool:
+    return any(text.endswith(m) or m in text[-32:] for m in STOP_MARKERS)
+
+def _strip_trailing_markers(text: str) -> str:
+    for m in STOP_MARKERS:
+        if text.endswith(m):
+            return text[: -len(m)].rstrip()
+    return text
+
+def chat_fn(message, history, system_prompt=SYSTEM_PROMPT):
+    msgs = [{"role": "system", "content": system_prompt}]
+    msgs.extend(history or [])
+    msgs.append({"role": "user", "content": message})
+
+    prompt = messages_to_prompt(msgs)
+
     out = ""
     for token in model.generate(prompt, streaming=True, **GEN_CFG):
         out += token
+        # manual stop when a new header starts
+        if _should_stop(out):
+            out = _strip_trailing_markers(out)
+            yield out
+            return
         yield out
 
 ui = gr.ChatInterface(
@@ -61,6 +77,7 @@ ui = gr.ChatInterface(
     description="Local, offline chat using Microsoft Phi-3 Mini 4K Instruct (GGUF) via GPT4All.",
     submit_btn="Send",
     stop_btn="Stop",
+    type="messages",  # role-based history prevents repeat answers
 )
 
 if __name__ == "__main__":
