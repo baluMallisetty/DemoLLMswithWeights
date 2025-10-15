@@ -1,0 +1,7 @@
+# Track model files with LFS (but avoid >2GB)
+*.gguf filter=lfs diff=lfs merge=lfs -text
+# Track zip files with LFS (good for >2GB)
+*.zip filter=lfs diff=lfs merge=lfs -text
+*.zip.* filter=lfs diff=lfs merge=lfs -text
+*.bin filter=lfs diff=lfs merge=lfs -text
+*.pt filter=lfs diff=lfs merge=lfs -text
