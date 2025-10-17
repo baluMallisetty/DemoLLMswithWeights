@@ -12,7 +12,7 @@ from multiprocessing import Process, Queue as MPQueue
 
 import gradio as gr
 import pandas as pd
-from gpt4all import GPT4All
+from llama_cpp import Llama
 
 # ---------------- Logging ----------------
 LOG_DIR = os.path.join(os.path.dirname(__file__), "logs")
@@ -35,11 +35,21 @@ for var in ["OMP_NUM_THREADS","OPENBLAS_NUM_THREADS","MKL_NUM_THREADS","NUMEXPR_
 
 MODEL_NAME = "phi-4-Q4_K_S.gguf"
 MODEL_DIR  = r"C:\Users\balum\OneDrive\Documents\AI\LLMs\models"
-USE_GPU = False
+MODEL_PATH = os.path.join(MODEL_DIR, MODEL_NAME)
 
-RUNTIME_CFG = dict(model_path=MODEL_DIR, allow_download=False, n_ctx=8192, mlock=True, mmap=False)
-CPU_INIT = dict(device="cpu", n_gpu_layers=0, n_batch=1536, n_threads=_CPU)
-GPU_INIT = dict(device="gpu", n_gpu_layers=-1, n_batch=1536)
+# Toggle this if you want to force CPU
+USE_GPU = True
+
+# llama.cpp runtime knobs
+LLAMA_INIT = dict(
+    model_path=MODEL_PATH,
+    n_ctx=16384,                 # context window for planning/explanations
+    n_batch=1536,               # matches your original setting
+    n_threads=_CPU,
+    seed=0,
+    verbose=False
+)
+
 GEN_CFG = dict(max_tokens=700, temp=0.15, top_p=0.9, repeat_penalty=1.07)
 STOP_MARKERS = ["### User:", "### System:", "<|end|>"]
 
@@ -62,35 +72,20 @@ SYSTEM_EXPLAIN = (
     "explain the answer in under 180 words. Include exact counts/percentages and any caveats."
 )
 
-def _supported_kwargs():
-    try:
-        params = inspect.signature(GPT4All.__init__).parameters
-        s = set(params); s.discard("self"); return s
-    except Exception:
-        return None
+def _init_model() -> Llama:
+    """
+    Initialize llama.cpp.
+    - On GPU: set n_gpu_layers=-1 for full offload (VRAM permitting).
+    - On CPU: n_gpu_layers=0.
+    """
+    cfg = dict(LLAMA_INIT)
+    cfg["n_gpu_layers"] = -1 if USE_GPU else 0
+    # If you want to pin CUDA math to fp16 (typical), llama.cpp picks best kernels automatically.
+    # You can also export: setx GGML_CUDA_FORCE_MMQ 1  (optional performance tweak)
+    logging.info(f"[MODEL] llama.cpp init -> {cfg}")
+    return Llama(**cfg)
 
-_SUPPORTED = _supported_kwargs()
-
-def _filter_kwargs(kwargs: Dict[str, Any]) -> Dict[str, Any]:
-    if not _SUPPORTED:
-        return kwargs
-    return {k:v for k,v in kwargs.items() if k in _SUPPORTED}
-
-def _init_model():
-    try:
-        base = dict(RUNTIME_CFG)
-        if USE_GPU:
-            cfg = _filter_kwargs({**base, **GPU_INIT})
-            logging.info(f"[MODEL] GPU init: {cfg}")
-            return GPT4All(MODEL_NAME, **cfg)
-        cfg = _filter_kwargs({**base, **CPU_INIT})
-        logging.info(f"[MODEL] CPU init: {cfg}")
-        return GPT4All(MODEL_NAME, **cfg)
-    except Exception as e:
-        logging.exception("[MODEL] Init failed; raising:")
-        raise
-
-model = _init_model()
+llm = _init_model()
 
 # --------------- CSV -> SQLite Tools ----------------
 
@@ -388,11 +383,20 @@ def _messages_to_prompt(messages, system):
     return "\n".join(parts)
 
 def _gen(prompt: str) -> str:
-    out = ""
-    for tok in model.generate(prompt, streaming=False, **GEN_CFG):
-        out += tok
-        if any(out.endswith(m) or m in out[-64:] for m in STOP_MARKERS): break
-    return out.strip()
+    """
+    Uses llama.cpp completion API.
+    Stop tokens are passed so we don’t have to manually trim a streaming loop.
+    """
+    resp = llm(
+        prompt,
+        max_tokens=GEN_CFG["max_tokens"],
+        temperature=GEN_CFG["temp"],
+        top_p=GEN_CFG["top_p"],
+        repeat_penalty=GEN_CFG["repeat_penalty"],
+        stop=STOP_MARKERS,
+        echo=False,
+    )
+    return resp["choices"][0]["text"].strip()
 
 INSTRUCTIONS_TOOLS = textwrap.dedent("""
 Write ONLY Python that calls `tools` and assigns `result`. Examples:
