@@ -1,2 +1,13 @@
 models/
 logs/
+binaries/
+*.dll
+*.pyd
+*.so
+*.dylib
+logs/
+*.gguf
+*.safetensors
+*.bin
+*.pt
+*.onnx
