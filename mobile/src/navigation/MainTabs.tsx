@@ -28,13 +28,39 @@ const MainTabs = (): JSX.Element => {
         headerShown: false,
         tabBarActiveTintColor: '#2563eb',
         tabBarInactiveTintColor: '#6b7280',
+        tabBarLabelStyle: {
+          fontSize: 12,
+          fontWeight: '600',
+          marginBottom: 4
+        },
+        tabBarStyle: {
+          backgroundColor: '#ffffff',
+          borderTopWidth: 1,
+          borderTopColor: '#e5e7eb',
+          height: 64,
+          paddingVertical: 6
+        },
         tabBarIcon: ({ color, size }) => (
           <Ionicons name={iconNameForRoute(route.name)} size={size} color={color} />
         )
       })}
     >
-      <Tab.Screen name="Posts" component={PostListScreen} />
-      <Tab.Screen name="Map" component={PostMapScreen} />
+      <Tab.Screen
+        name="Posts"
+        component={PostListScreen}
+        options={{
+          tabBarLabel: 'Feed',
+          tabBarTestID: 'feed-tab'
+        }}
+      />
+      <Tab.Screen
+        name="Map"
+        component={PostMapScreen}
+        options={{
+          tabBarLabel: 'Map View',
+          tabBarTestID: 'map-tab'
+        }}
+      />
     </Tab.Navigator>
   );
 };
